@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Renewable Energy Bar Chart Race</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://d3js.org/d3.v6.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f9;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-top: 20px;
+      color: #2c3e50;
+    }
+    #year-display {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: bold;
+      margin-top: 10px;
+      color: #e74c3c;
+    }
+    #bar-chart {
+      width: 90%;
+      margin: auto;
+      margin-top: 30px;
+    }
+    .controls {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .controls button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      color: white;
+      background-color: #3498db;
+      border: none;
+      border-radius: 5px;
+      margin: 5px;
+      cursor: pointer;
+    }
+    .controls button:hover {
+      background-color: #2980b9;
+    }
+    .timeline {
+      width: 90%;
+      margin: auto;
+      text-align: center;
+      margin-top: 20px;
+    }
+    .timeline div {
+      display: inline-block;
+      font-size: 0.9rem;
+      color: #7f8c8d;
+      margin: 0 5px;
+      cursor: pointer;
+    }
+    .timeline .active {
+      font-weight: bold;
+      color: #e74c3c;
+    }
+  </style>
+</head>
+<body>
+  <h1>Renewable Energy Bar Chart Race</h1>
+  <div id="year-display">Year: 1965</div> <!-- Dynamic Year Display -->
+  <div id="bar-chart"></div>
+  <div class="timeline" id="timeline"></div> <!-- Timeline -->
+  <div class="controls">
+    <button id="play-button">Play</button>
+    <button id="pause-button">Pause</button>
+  </div>
+
+  <script>
+    const dataPath = "./data/renewable-share-energy.csv";  // Ensure this path is correct
+
+    d3.csv(dataPath).then(data => {
+      console.log("Dataset loaded successfully:", data);
+
+      const frames = [];
+      const years = [...new Set(data.map(d => d.Year))];
+      let isPlaying = false;
+      let currentFrameIndex = 0;
+
+      years.forEach(year => {
+        const yearData = data
+          .filter(d => d.Year === year)
+          .sort((a, b) => +b["Renewables (% equivalent primary energy)"] - +a["Renewables (% equivalent primary energy)"])
+          .slice(0, 10);
+
+        frames.push({
+          name: year,
+          data: [
+            {
+              type: "bar",
+              x: yearData.map(d => +d["Renewables (% equivalent primary energy)"]),
+              y: yearData.map(d => d.Entity),
+              orientation: "h",
+              text: yearData.map(d => `${d.Entity}: ${( +d["Renewables (% equivalent primary energy)"]).toFixed(2)}%`),
+              marker: {
+                color: yearData.map((_, i) => `hsl(${i * 36}, 70%, 50%)`), // Corrected the hsl syntax
+              },
+            },
+          ],
+        });
+      });
+
+      const updateYearDisplay = year => {
+        document.getElementById("year-display").textContent = `Year: ${year}`;
+        // Highlight the active year in the timeline
+        document.querySelectorAll(".timeline div").forEach(el => {
+          el.classList.remove("active");
+          if (el.textContent === year) el.classList.add("active");
+        });
+      };
+
+      // Build the timeline
+      const timelineContainer = document.getElementById("timeline");
+      years.forEach(year => {
+        const yearDiv = document.createElement("div");
+        yearDiv.textContent = year;
+        yearDiv.addEventListener("click", () => {
+          // Update to the clicked year
+          currentFrameIndex = years.indexOf(year);
+          updateYearDisplay(year);
+          Plotly.animate("bar-chart", [frames[currentFrameIndex]], {
+            frame: { duration: 1000, redraw: true },
+            transition: { duration: 500 },
+          });
+        });
+        timelineContainer.appendChild(yearDiv);
+      });
+
+      const layout = {
+        title: "Top Regions by Renewable Energy Share Over Time",
+        xaxis: {
+          title: "Renewables (% Equivalent Primary Energy)",
+          range: [0, 100],
+        },
+        margin: {
+          l: 150, // Increased left margin
+        },
+      };
+
+      Plotly.newPlot("bar-chart", frames[0].data, layout).then(() => {
+        const playAnimation = () => {
+          if (isPlaying && currentFrameIndex < frames.length) {
+            Plotly.animate("bar-chart", [frames[currentFrameIndex]], {
+              frame: { duration: 1000, redraw: true },
+              transition: { duration: 500 },
+            });
+            updateYearDisplay(frames[currentFrameIndex].name);
+            currentFrameIndex += 1;
+
+            setTimeout(playAnimation, 1000); // Call next frame
+          }
+        };
+
+        // Play button functionality
+        document.getElementById("play-button").addEventListener("click", () => {
+          if (!isPlaying) {
+            isPlaying = true;
+            playAnimation();
+          }
+        });
+
+        // Pause button functionality
+        document.getElementById("pause-button").addEventListener("click", () => {
+          isPlaying = false;
+        });
+
+        // Set the initial year display
+        updateYearDisplay(years[0]);
+      });
+    }).catch(error => {
+      console.error("Error loading dataset:", error);
+      document.getElementById("year-display").textContent = "Error loading data!";
+    });
+  </script>
+</body>
+</html>

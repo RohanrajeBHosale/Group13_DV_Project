@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fossil Fuel Consumption</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f4f4f4;
+        }
+
+        h1{
+            font-size: 25px;
+            margin-bottom: 5px;
+            font-weight: 600;
+            background-image: linear-gradient(to right, #553c9a 45%, #ee4b2b);
+            color: transparent;
+            background-clip: text;
+            -webkit-background-clip: text;
+        }
+        h2{
+            font-size: 18px;
+            margin: 0px;
+            font-weight: 600;
+            background-image:  conic-gradient(#553c9a, #ee4b2b, #00c2cb);
+            color: transparent;
+            background-clip: text;
+            -webkit-background-clip: text;
+        }
+
+        #chart {
+            width: 90%;
+            margin: auto;
+            border: 1px solid #ddd;
+        }
+
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .controls button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .controls .active {
+            background-color: #007BFF;
+            color: white;
+        }
+
+        .slider-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .slider {
+            width: 50%;
+            margin: 10px auto;
+        }
+
+        .play-pause-btn {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px auto;
+        }
+
+        .play-pause-btn:hover {
+            background-color: #45a049;
+        }
+
+        .toggle-btn {
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            display: block;
+            text-align: center;
+        }
+
+        .toggle-btn:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Interactive Fossil Fuel Consumption Visualization</h1>
+
+<!-- Navigation Buttons -->
+<div class="controls">
+    <button onclick="navigateTo('primary-energy-consumption.html')">Primary Energy</button>
+    <button class="active" onclick="navigateTo('fossil-fuel-consumption.html')">Fossil Fuel</button>
+    <button onclick="navigateTo('renewable-energy-consumption.html')">Renewable Energy</button>
+</div>
+
+<div id="chart"></div>
+
+<div class="slider-container">
+    <input type="range" id="year-slider" class="slider" min="1860" max="2020" step="1" value="1880">
+    <button id="play-pause" class="play-pause-btn">Play</button>
+</div>
+
+<div class="slider-container">
+    <button class="toggle-btn" onclick="switchToChoropleth()">Switch to Choropleth Map</button>
+</div>
+
+<script src="https://d3js.org/d3.v6.min.js"></script>
+<script>
+    const margin = { top: 20, right: 20, bottom: 30, left: 70 },
+        width = 1000 - margin.left - margin.right,
+        height = 500 - margin.top - margin.bottom;
+
+    const svg = d3.select("#chart").append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+        .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const tooltip = d3.select("body").append("div").attr("class", "tooltip");
+
+    const x = d3.scaleLinear().range([0, width]);
+    const y = d3.scaleLinear().range([height, 0]);
+    const color = d3.scaleOrdinal(["#377eb8", "brown", "#4daf4a"]);
+
+    const stack = d3.stack().keys(["Coal", "Oil", "Gas"]);
+    const area = d3.area()
+        .x(d => x(d.data.Year))
+        .y0(d => y(d[0]))
+        .y1(d => y(d[1]));
+
+    let layers, filteredKeys = ["Coal", "Oil", "Gas"], rawData;
+    let playing = false, playInterval;
+
+    d3.csv("https://raw.githubusercontent.com/ShraddhaMore13/DV1/main/global-fossil-fuel-consumption.csv").then(data => {
+        data.forEach(d => {
+            d.Year = +d.Year;
+            d.Coal = +d["Coal (TWh, direct energy)"];
+            d.Oil = +d["Oil (TWh, direct energy)"];
+            d.Gas = +d["Gas (TWh, direct energy)"];
+        });
+
+        rawData = data.filter(d => d.Entity === "World");
+        layers = stack(rawData);
+        x.domain(d3.extent(rawData, d => d.Year));
+        y.domain([0, d3.max(layers, l => d3.max(l, d => d[1]))]);
+
+        const initialData = rawData.filter(d => d.Year <= 1880);
+        layers = stack(initialData);
+        drawChart(initialData);
+        addInteractivity();
+    });
+
+    function drawChart(data) {
+        svg.selectAll("*").remove();
+
+        svg.append("g")
+            .attr("transform", `translate(0, ${height})`)
+            .call(d3.axisBottom(x).ticks(10).tickFormat(d3.format("d")));
+
+        svg.append("g")
+            .call(d3.axisLeft(y));
+
+        const visibleLayers = layers.filter(layer => filteredKeys.includes(layer.key));
+
+        svg.selectAll(".layer")
+            .data(visibleLayers)
+            .enter()
+            .append("path")
+            .attr("class", "layer")
+            .attr("d", area)
+            .style("fill", d => color(d.key))
+            .on("mouseover", function (event, d) {
+                d3.select(this).style("opacity", 0.7);
+                tooltip.style("opacity", 1);
+            })
+            .on("mousemove", function (event, d) {
+                const [mouseX] = d3.pointer(event);
+                const year = Math.round(x.invert(mouseX));
+                const dataPoint = d.find(point => point.data.Year === year);
+                if (dataPoint) {
+                    const value = dataPoint[1] - dataPoint[0];
+                    tooltip.html(`<strong>${d.key}</strong><br>Year: ${year}<br>Value: ${value.toFixed(2)} TWh`)
+                        .style("left", `${event.pageX + 10}px`)
+                        .style("top", `${event.pageY - 10}px`);
+                }
+            })
+            .on("mouseout", function () {
+                d3.select(this).style("opacity", 1);
+                tooltip.style("opacity", 0);
+            });
+    }
+
+    function addInteractivity() {
+        const slider = d3.select("#year-slider");
+        slider.on("input", function () {
+            const selectedYear = +this.value;
+            const filteredData = rawData.filter(d => d.Year <= selectedYear);
+            layers = stack(filteredData);
+            drawChart(filteredData);
+        });
+
+        d3.select("#play-pause").on("click", function () {
+            playing = !playing;
+            this.textContent = playing ? "Pause" : "Play";
+            if (playing) {
+                let year = +slider.property("value");
+                playInterval = setInterval(() => {
+                    if (year >= +slider.attr("max")) {
+                        year = +slider.attr("min");
+                    }
+                    year += 10;
+                    slider.property("value", year).dispatch("input");
+                }, 100);
+            } else {
+                clearInterval(playInterval);
+            }
+        });
+    }
+
+    function navigateTo(url) {
+        window.location.href = url;
+    }
+
+    function switchToChoropleth() {
+        window.location.href = "choropleth.html";
+    }
+</script>
+</body>
+</html>

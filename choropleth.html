@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choropleth Map - Fossil Fuel Consumption</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f4f4f4;
+        }
+
+        h1 {
+            font-size: 25px;
+            margin: 10px 0;
+            font-weight: 600;
+            background-image: linear-gradient(to right, #553c9a 45%, #ee4b2b);
+            color: transparent;
+            background-clip: text;
+            -webkit-background-clip: text;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .controls button {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+        }
+
+        .controls .active {
+            background-color: #007BFF;
+            color: white;
+        }
+
+        #chart-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            flex-grow: 1;
+        }
+
+        #chart {
+            width: 80%;
+            height: 100%;
+            border: 1px solid #ddd;
+        }
+
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            pointer-events: none;
+            opacity: 0;
+            font-size: 12px;
+            transition: opacity 0.3s;
+        }
+
+        .fuel-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 15px 0;
+        }
+
+        label {
+            font-size: 16px;
+            font-weight: bold;
+            padding: 10px 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        input[type="radio"] {
+            display: none;
+        }
+
+        input[type="radio"]:checked + label {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        .slider-container {
+            text-align: center;
+            margin: 15px 0;
+        }
+
+        .slider {
+            width: 50%;
+            margin: 10px auto;
+        }
+
+        .play-pause-btn {
+            padding: 10px 20px;
+            font-size: 1rem;
+            font-weight: bold;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px auto;
+        }
+
+        .play-pause-btn:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Choropleth Map - Fossil Fuel Consumption</h1>
+
+<!-- Navigation Buttons -->
+<div class="controls">
+    <button onclick="navigateTo('primary-energy-consumption.html')">Primary Energy</button>
+    <button onclick="navigateTo('fossil-fuel-consumption.html')">Fossil Fuel</button>
+    <button onclick="navigateTo('renewable-energy-consumption.html')">Renewable Energy</button>
+</div>
+
+<!-- Fuel Toggle Buttons -->
+<div class="fuel-toggle">
+    <input type="radio" id="oil-radio" name="fuel" value="oil" checked>
+    <label for="oil-radio">Oil</label>
+
+    <input type="radio" id="gas-radio" name="fuel" value="gas">
+    <label for="gas-radio">Gas</label>
+
+    <input type="radio" id="coal-radio" name="fuel" value="coal">
+    <label for="coal-radio">Coal</label>
+</div>
+
+<div id="chart-container">
+    <div id="chart"></div>
+</div>
+
+<div class="slider-container">
+    <input type="range" id="year-slider" class="slider" min="1965" max="2020" step="1" value="1965">
+    <button id="play-pause" class="play-pause-btn">Play</button>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+    const geoJsonUrl = "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson";
+
+    const jsonFiles = {
+        oil: "oil_consumption_cleaned.json",
+        gas: "gas_consumption_cleaned.json",
+        coal: "coal_consumption_cleaned.json"
+    };
+
+    const width = 960;
+    const height = 500;
+
+    let currentFuel = "oil";
+    let currentYear = 1965;
+    let processedData = {};
+    let isPlaying = false;
+    let playInterval;
+
+    const svg = d3.select("#chart")
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+    const tooltip = d3.select("#tooltip");
+
+    const colorScales = {
+        oil: d3.scaleThreshold()
+            .domain([100, 500, 1000])
+            .range(["#e5f5e0", "#a1d99b", "#31a354"]),
+        gas: d3.scaleThreshold()
+            .domain([10, 50, 100])
+            .range(["#deebf7", "#9ecae1", "#3182bd"]),
+        coal: d3.scaleThreshold()
+            .domain([300, 500, 1000])
+            .range(["#f0f0f0", "#bdbdbd", "#636363"])
+    };
+
+    let geoData;
+    d3.json(geoJsonUrl).then(data => {
+        geoData = data;
+        loadData();
+    });
+
+    function loadData() {
+        d3.json(jsonFiles[currentFuel]).then(data => {
+            processedData = processData(data);
+            renderChoroplethMap(currentYear, currentFuel);
+        });
+    }
+
+    function processData(data) {
+        const processed = {};
+        data.forEach(row => {
+            const year = +row.year;
+            const country = row.entity;
+            if (!processed[year]) {
+                processed[year] = {};
+            }
+            processed[year][country] = +row[`${currentFuel}_consumption_-_twh`] || 0;
+        });
+        return processed;
+    }
+
+    function renderChoroplethMap(year, fuel) {
+        svg.selectAll("*").remove();
+
+        const yearData = processedData[year] || {};
+        const dataByCountry = new Map(Object.entries(yearData));
+
+        const projection = d3.geoNaturalEarth1().fitSize([width, height], geoData);
+        const path = d3.geoPath().projection(projection);
+
+        svg.selectAll(".country")
+            .data(geoData.features)
+            .enter()
+            .append("path")
+            .attr("class", "country")
+            .attr("d", path)
+            .attr("fill", d => {
+                const value = dataByCountry.get(d.properties.name);
+                return colorScales[fuel](value || 0);
+            })
+            .attr("stroke", "#fff")
+            .attr("stroke-width", 0.5)
+            .on("mouseover", (event, d) => {
+                const value = dataByCountry.get(d.properties.name) || 0;
+                tooltip.transition().style("opacity", 1);
+                tooltip.html(`
+                    <strong>${d.properties.name || "Unknown"}</strong><br>
+                    Year: ${year}<br>
+                    ${fuel.charAt(0).toUpperCase() + fuel.slice(1)}: ${value.toFixed(2)} TWh
+                `)
+                    .style("left", `${event.pageX + 10}px`)
+                    .style("top", `${event.pageY - 10}px`);
+            })
+            .on("mousemove", (event) => {
+                tooltip.style("left", `${event.pageX + 10}px`)
+                    .style("top", `${event.pageY - 10}px`);
+            })
+            .on("mouseout", () => {
+                tooltip.transition().style("opacity", 0);
+            });
+    }
+
+    function togglePlayPause() {
+        isPlaying = !isPlaying;
+        const playPauseButton = document.getElementById("play-pause");
+        playPauseButton.textContent = isPlaying ? "Pause" : "Play";
+
+        if (isPlaying) {
+            playInterval = setInterval(() => {
+                currentYear += 1;
+                if (currentYear > 2020) {
+                    currentYear = 1965;
+                }
+                document.getElementById("year-slider").value = currentYear;
+                renderChoroplethMap(currentYear, currentFuel);
+            }, 100);
+        } else {
+            clearInterval(playInterval);
+        }
+    }
+
+    document.getElementById("play-pause").addEventListener("click", togglePlayPause);
+
+    d3.selectAll("input[name='fuel']").on("change", function () {
+        currentFuel = this.value;
+        loadData();
+    });
+
+    function navigateTo(url) {
+        window.location.href = url;
+    }
+</script>
+
+</body>
+</html>
